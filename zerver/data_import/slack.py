@@ -6,6 +6,9 @@ import random
 import secrets
 import shutil
 import zipfile
+import requests
+import html2text
+import subprocess
 from collections import defaultdict
 from email.headerregistry import Address
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Type, TypeVar
@@ -823,10 +826,33 @@ def get_messages_iterator(
                     # skipping those messages is simpler.
                     continue
                 if message.get("mimetype") == "application/vnd.slack-docs":
-                    # This is a Slack "Post" which is HTML-formatted,
-                    # and we don't have a clean way to import at the
-                    # moment.  We skip them on import.
-                    continue
+                    # This is a Slack "Post" which is HTML-formatted
+                    html_url = message.get("url_private_download", "")
+                    if html_url:
+                        # Download HTML content from the URL
+                        response = requests.get(html_url)
+                        if response.status_code == 200:
+                            # Convert HTML to Markdown using html2text as a subprocess
+                            html_content = response.text
+                            try:
+                                completed_process = subprocess.run(
+                                    ["html2text", "-"],
+                                    input=html_content.encode("utf-8"),
+                                    text=True,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    check=True,
+                                )
+                                markdown_content = completed_process.stdout
+                                # Now, we can work with the markdown_content or import it as needed.
+                                message["text"] = markdown_content  # Update the message content
+                            except subprocess.CalledProcessError as e:
+                                print("Error running html2text:", e.stderr)
+                        else:
+                            print(f"Failed to download HTML from {html_url}. Status code: {response.status_code}")
+                    else:
+                        print("URL for private download not found in message.")
+                        continue
                 if dir_name in added_channels:
                     message["channel_name"] = dir_name
                 elif dir_name in added_mpims:
